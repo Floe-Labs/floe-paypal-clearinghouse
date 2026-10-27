@@ -30,8 +30,8 @@ Work Requested -> M2 Authority & PayPal AUTHORIZE Hold -> Work Performed -> M0 B
    - **Idempotent Webhook Verification (`verifyAndDeduplicatePayPalWebhook`)**: Verifies HMAC signatures and deduplicates replayed PayPal webhook deliveries.
 
 2. **`packages/agent-authority-mcp`** (`@floe-labs/agent-authority-mcp`)
-   - Model Context Protocol (MCP) server tools for autonomous agents (`request_work_authorization`, `report_work_evidence`, `settle_cleared_statement`).
-   - Enforces attenuation ceilings, per-task and per-period spend caps, human-in-the-loop sign-off for restricted operations, and strict separation of **work performed ≠ work billed ≠ work verified ≠ work accepted ≠ work payable**.
+   - Model Context Protocol (MCP) JSON-RPC 2.0 server and tools for autonomous agents (`request_work_authorization`, `report_work_evidence`, `settle_cleared_work`).
+   - Enforces attenuation ceilings, per-task and per-period spend caps, cryptographically verified human-in-the-loop sign-off for restricted operations, and strict separation of **work performed ≠ work billed ≠ work verified ≠ work accepted ≠ work payable**.
 
 3. **`apps/clearinghouse-workbench`**
    - Deterministic Sandbox Replay (`runClearinghouseDemoReplay`) + interactive data payloads for:
@@ -44,12 +44,14 @@ Work Requested -> M2 Authority & PayPal AUTHORIZE Hold -> Work Performed -> M0 B
 ## Quick Start (Zero External Credentials Required)
 
 ```bash
-pnpm install
-pnpm typecheck
-pnpm test
+npm ci
+npm run build
+npm run typecheck
+npm test
 ```
 
 ### Example: Deterministic Northwind vs. Fin AI Settlement Replay
+
 - **Vendor Invoice Billed (`AUTHORIZE` Hold)**: `$4,530.24` (`4,530,240,000` micro-USD)
 - **Verified Cleared Work (`CAPTURE` to Vendor)**: `$4,334.22` (`4,378` verified autonomous resolutions @ `$0.99`)
 - **Excluded Reopens within 5-Day Window (`T5` · `VOID_HOLD`)**: `$141.57` (`143` conversations returned to buyer)
