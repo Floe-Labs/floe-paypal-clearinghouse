@@ -236,10 +236,12 @@ export function crc32Decimal(rawBody: string): number {
   return (crc ^ 0xffffffff) >>> 0;
 }
 
-function isTrustedPayPalCertUrl(certUrl: string): boolean {
+const TRUSTED_PAYPAL_CERT_HOSTS = new Set(["api.paypal.com", "api.sandbox.paypal.com", "api-m.paypal.com", "api-m.sandbox.paypal.com"]);
+
+export function isTrustedPayPalCertUrl(certUrl: string): boolean {
   try {
     const parsed = new URL(certUrl);
-    return parsed.protocol === "https:" && (parsed.hostname === "api.paypal.com" || parsed.hostname === "api.sandbox.paypal.com");
+    return parsed.protocol === "https:" && TRUSTED_PAYPAL_CERT_HOSTS.has(parsed.hostname);
   } catch {
     return false;
   }

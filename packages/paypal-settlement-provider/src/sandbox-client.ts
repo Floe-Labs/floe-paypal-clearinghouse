@@ -2,6 +2,7 @@ import {
   buildMultiVendorPayoutBatch,
   buildPayPalOrderAuthorization,
   buildPayPalSplitCapturePlan,
+  isTrustedPayPalCertUrl,
   type ClearedWorkStatementInput,
   type PayPalOrderV2AuthPayload,
   type PayPalPayoutBatchPayload,
@@ -17,6 +18,7 @@ export interface PayPalClearinghouseClientConfig {
   readonly clientSecret: string;
   readonly environment?: PayPalEnvironment;
   readonly webhookId?: string;
+  readonly requestTimeoutMs?: number;
   readonly fetchFn?: typeof fetch;
 }
 
@@ -37,34 +39,38 @@ function resolvePayPalBaseUrl(env: PayPalEnvironment): string {
   return env === "live" ? "https://api-m.paypal.com" : "https://api-m.sandbox.paypal.com";
 }
 
-function isTrustedCertHost(certUrl: string): boolean {
-  try {
-    const parsed = new URL(certUrl);
-    return parsed.protocol === "https:" && (parsed.hostname === "api.paypal.com" || parsed.hostname === "api.sandbox.paypal.com");
-  } catch {
-    return false;
-  }
-}
-
 export class PayPalClearinghouseClient {
   private readonly baseUrl: string;
   private readonly clientId: string;
   private readonly clientSecret: string;
   private readonly webhookId?: string;
   private readonly fetchFn: typeof fetch;
+  private cachedToken?: { readonly value: string; readonly expiresAtMs: number };
 
   constructor(config: PayPalClearinghouseClientConfig) {
     if (!config.clientId.trim() || !config.clientSecret.trim()) {
       throw new Error("PayPalClearinghouseClient requires non-empty clientId and clientSecret.");
     }
+    const timeoutMs = config.requestTimeoutMs ?? 15_000;
+    if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+      throw new Error("PayPalClearinghouseClient requires a positive finite requestTimeoutMs.");
+    }
     this.clientId = config.clientId;
     this.clientSecret = config.clientSecret;
     this.webhookId = config.webhookId;
     this.baseUrl = resolvePayPalBaseUrl(config.environment ?? "sandbox");
-    this.fetchFn = config.fetchFn ?? fetch;
+    const baseFetch = config.fetchFn ?? fetch;
+    this.fetchFn = (input, init) =>
+      baseFetch(input, {
+        ...init,
+        signal: init?.signal ?? AbortSignal.timeout(timeoutMs),
+      });
   }
 
   async fetchAccessToken(): Promise<string> {
+    if (this.cachedToken && Date.now() < this.cachedToken.expiresAtMs) {
+      return this.cachedToken.value;
+    }
     const basic = Buffer.from(`${this.clientId}:${this.clientSecret}`, "utf8").toString("base64");
     const res = await this.fetchFn(`${this.baseUrl}/v1/oauth2/token`, {
       method: "POST",
@@ -78,9 +84,19 @@ export class PayPalClearinghouseClient {
     if (!res.ok) {
       throw new Error(`PayPal OAuth2 token exchange failed with status ${res.status}.`);
     }
-    const body = (await res.json()) as { access_token?: string };
+    const body = (await res.json()) as { access_token?: string; expires_in?: number };
     if (!body.access_token) {
       throw new Error("PayPal OAuth2 response did not contain an access_token.");
+    }
+    const ttlSeconds =
+      typeof body.expires_in === "number" && Number.isFinite(body.expires_in)
+        ? Math.max(0, body.expires_in - 60)
+        : 0;
+    if (ttlSeconds > 0) {
+      this.cachedToken = {
+        value: body.access_token,
+        expiresAtMs: Date.now() + ttlSeconds * 1000,
+      };
     }
     return body.access_token;
   }
@@ -196,7 +212,7 @@ export class PayPalClearinghouseClient {
       !headers.transmissionTime ||
       !headers.transmissionSig ||
       headers.authAlgo !== "SHA256withRSA" ||
-      !isTrustedCertHost(headers.certUrl)
+      !isTrustedPayPalCertUrl(headers.certUrl)
     ) {
       return { verified: false, duplicate: false, eventId: null, event: null, nextProcessedEventIds: existingSet };
     }
@@ -210,21 +226,14 @@ export class PayPalClearinghouseClient {
       return { verified: false, duplicate: false, eventId: null, event: null, nextProcessedEventIds: existingSet };
     }
     const token = await this.fetchAccessToken();
+    const verifyBody = `{"auth_algo":${JSON.stringify(headers.authAlgo)},"cert_url":${JSON.stringify(headers.certUrl)},"transmission_id":${JSON.stringify(headers.transmissionId)},"transmission_sig":${JSON.stringify(headers.transmissionSig)},"transmission_time":${JSON.stringify(headers.transmissionTime)},"webhook_id":${JSON.stringify(webhookId)},"webhook_event":${input.rawBody}}`;
     const res = await this.fetchFn(`${this.baseUrl}/v1/notifications/verify-webhook-signature`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${token}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        auth_algo: headers.authAlgo,
-        cert_url: headers.certUrl,
-        transmission_id: headers.transmissionId,
-        transmission_sig: headers.transmissionSig,
-        transmission_time: headers.transmissionTime,
-        webhook_id: webhookId,
-        webhook_event: parsed,
-      }),
+      body: verifyBody,
     });
     if (!res.ok) {
       return { verified: false, duplicate: false, eventId: null, event: null, nextProcessedEventIds: existingSet };
