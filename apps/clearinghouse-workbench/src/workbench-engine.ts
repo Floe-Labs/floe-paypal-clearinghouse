@@ -68,7 +68,7 @@ export const DEMO_CLEARED_WORK_STATEMENT: ClearedWorkStatementInput = {
   orgId: "org_northwind_enterprise",
   buyerName: "Northwind Global Operations, Inc.",
   vendorName: "Fin AI Customer Support Agent",
-  payeeMerchantId: "PAYPAL_MERCHANT_FIN_AI",
+  payeeMerchantId: "4MWDGZ4MWSE5J",
   currency: "USD",
   periodStartIso: "2026-10-01T00:00:00Z",
   periodEndIso: "2026-10-31T00:00:00Z",
