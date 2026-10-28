@@ -266,23 +266,23 @@ describe("Floe PayPal AI Clearinghouse — Orders v2 Escrow, MCP Authority & Wor
     expect(forged.verified).toBe(false);
   });
 
-  it("runs deterministic Clearinghouse Workbench replay producing AG Grid, Bryntum & Foxit payloads across currencies and settlement modes", () => {
+  it("runs deterministic Clearinghouse Workbench replay producing AG Grid, Bryntum & Statement Receipt payloads across currencies and settlement modes", () => {
     const r1 = runClearinghouseDemoReplay();
     const r2 = runClearinghouseDemoReplay();
     expect(r1.splitPlan.planHash).toBe(r2.splitPlan.planHash);
     expect(r1.payoutBatch).toBeNull();
     expect(r1.agGridRows).toHaveLength(3);
     expect(r1.bryntumTimeline).toHaveLength(4);
-    expect(r1.foxitDocumentPayload.totalBilledFormatted).toBe("$4530.24");
-    expect(r1.foxitDocumentPayload.totalCapturedPayableFormatted).toBe("$4334.22");
-    expect(r1.foxitDocumentPayload.totalVoidedExcludedFormatted).toBe("$141.57");
-    expect(r1.foxitDocumentPayload.totalHeldDisputedFormatted).toBe("$54.45");
+    expect(r1.statementReceiptPayload.totalBilledFormatted).toBe("$4530.24");
+    expect(r1.statementReceiptPayload.totalCapturedPayableFormatted).toBe("$4334.22");
+    expect(r1.statementReceiptPayload.totalVoidedExcludedFormatted).toBe("$141.57");
+    expect(r1.statementReceiptPayload.totalHeldDisputedFormatted).toBe("$54.45");
 
     const eurReplay = runClearinghouseDemoReplay(
       { ...DEMO_CLEARED_WORK_STATEMENT, currency: "EUR" },
       { settlementMode: "MULTI_VENDOR_PAYOUT" },
     );
-    expect(eurReplay.foxitDocumentPayload.totalBilledFormatted).toBe("€4530.24");
+    expect(eurReplay.statementReceiptPayload.totalBilledFormatted).toBe("€4530.24");
     expect(eurReplay.payoutBatch?.items).toHaveLength(1);
   });
 });
