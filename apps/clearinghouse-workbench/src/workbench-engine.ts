@@ -29,7 +29,7 @@ export interface BryntumTimelineMilestone {
   readonly verificationHash: string;
 }
 
-export interface FoxitClearedStatementDocumentPayload {
+export interface ClearedStatementReceiptPayload {
   readonly documentTitle: string;
   readonly statementId: string;
   readonly statementVersion: number;
@@ -115,11 +115,20 @@ export function runClearinghouseDemoReplay(
   options?: {
     readonly settlementMode?: "ORDER_V2_CAPTURE" | "MULTI_VENDOR_PAYOUT";
     readonly multiVendorStatements?: readonly ClearedWorkStatementInput[];
+    readonly orderId?: string;
+    readonly authorizationId?: string;
   },
 ) {
   const settlementMode = options?.settlementMode ?? "ORDER_V2_CAPTURE";
-  const orderId = "PAYPAL-ORDER-8841920X";
-  const authorizationId = "PAYPAL-AUTH-3391042A";
+  const hasCustomOrder = Boolean(options?.orderId?.trim());
+  const hasCustomAuth = Boolean(options?.authorizationId?.trim());
+  if (hasCustomOrder !== hasCustomAuth) {
+    throw new Error(
+      "Both orderId and authorizationId must be provided together when overriding deterministic replay IDs.",
+    );
+  }
+  const orderId = hasCustomOrder ? options!.orderId!.trim() : "PAYPAL-ORDER-8841920X";
+  const authorizationId = hasCustomAuth ? options!.authorizationId!.trim() : "PAYPAL-AUTH-3391042A";
 
   const orderAuth = buildPayPalOrderAuthorization(statement);
   const splitPlan = buildPayPalSplitCapturePlan(statement, orderId, authorizationId);
@@ -199,7 +208,7 @@ export function runClearinghouseDemoReplay(
     },
   ];
 
-  const foxitDocumentPayload: FoxitClearedStatementDocumentPayload = {
+  const statementReceiptPayload: ClearedStatementReceiptPayload = {
     documentTitle: `Floe Cleared Work Statement & PayPal Settlement Receipt — ${statement.statementId}`,
     statementId: statement.statementId,
     statementVersion: statement.statementVersion,
@@ -232,6 +241,6 @@ export function runClearinghouseDemoReplay(
     payoutBatch,
     agGridRows,
     bryntumTimeline,
-    foxitDocumentPayload,
+    statementReceiptPayload,
   };
 }

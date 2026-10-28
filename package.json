@@ -6,7 +6,10 @@
   "description": "Autonomous AI Work Clearinghouse & Programmable Escrow on PayPal Orders v2, Payouts & Disputes APIs",
   "type": "module",
   "scripts": {
-    "build": "tsc --noEmit",
+    "build": "tsc -p tsconfig.build.json",
+    "start": "npm run build && node dist/apps/clearinghouse-workbench/src/server.js",
+    "dev": "npm run build && node dist/apps/clearinghouse-workbench/src/server.js",
+    "demo": "npm run build && node dist/apps/clearinghouse-workbench/src/cli-demo.js",
     "test": "vitest run --maxWorkers=10",
     "typecheck": "tsc --noEmit"
   },
