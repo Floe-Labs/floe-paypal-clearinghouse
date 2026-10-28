@@ -34,10 +34,10 @@ Work Requested -> M2 Authority & PayPal AUTHORIZE Hold -> Work Performed -> M0 B
    - Enforces attenuation ceilings, per-task and per-period spend caps, cryptographically verified HMAC human-in-the-loop sign-off for restricted operations (`createHumanApprovalProof`), and strict separation of **work performed ≠ work billed ≠ work verified ≠ work accepted ≠ work payable**.
 
 3. **`apps/clearinghouse-workbench`**
-   - **Interactive Web Workbench (`npm start` → `http://localhost:4173`)**:
+   - **Interactive Web Workbench (`npm start` → `http://127.0.0.1:4173`)**:
      - **AG Grid Community (`v33`)**: Interactive line-by-line Cleared Work Statement vs. PayPal `CAPTURE` / `VOID_HOLD` / `DISPUTE_HOLD` reconciliation grid with pinned conservation totals, quick-filter search, and 1-click CSV export.
-     - **Bryntum Milestone Timeline**: End-to-end M2 Authority → M0 Verification → M1 Agreement → M3 PayPal Settlement audit timeline with SHA-256 verification hashes.
-     - **Live MCP & PayPal Sandbox Inspector**: Interactive buttons to execute MCP JSON-RPC 2.0 tool calls and live PayPal Sandbox `Orders v2 AUTHORIZE` holds.
+     - **M2 → M0 → M1 → M3 Milestone List (`BryntumTimelineMilestone` Schema)**: End-to-end M2 Authority → M0 Verification → M1 Agreement → M3 PayPal Settlement audit milestone records with SHA-256 verification hashes.
+     - **Live MCP & PayPal Inspector**: Interactive buttons to execute MCP JSON-RPC 2.0 tool calls and PayPal `Orders v2 AUTHORIZE` holds + split-capture projections.
    - **CLI Sandbox Runner (`npm run demo`)**: Runs the complete M2 → M0 → M1 → M3 clearinghouse flow from the terminal (automatically executing against live PayPal Sandbox when `PAYPAL_CLIENT_ID` and `PAYPAL_CLIENT_SECRET` are provided, or deterministic offline replay when run without credentials).
 
 ---

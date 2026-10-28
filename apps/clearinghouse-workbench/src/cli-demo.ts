@@ -5,15 +5,22 @@ import {
   type AgentAuthorityBudgetPolicy,
   type IssuedWorkAuthorization,
 } from "../../../packages/agent-authority-mcp/src/index.js";
-import { PayPalClearinghouseClient } from "../../../packages/paypal-settlement-provider/src/index.js";
+import {
+  PayPalClearinghouseClient,
+  type PayPalCaptureResponse,
+} from "../../../packages/paypal-settlement-provider/src/index.js";
 import { DEMO_CLEARED_WORK_STATEMENT, runClearinghouseDemoReplay } from "./workbench-engine.js";
 
-export async function runClearinghouseCliDemo(options?: {
+export interface CliDemoOptions {
   readonly paypalClientId?: string;
   readonly paypalClientSecret?: string;
   readonly paypalEnvironment?: "sandbox" | "live";
+  readonly orderId?: string;
+  readonly authorizationId?: string;
   readonly fetchFn?: typeof fetch;
-}) {
+}
+
+export async function runClearinghouseCliDemo(options?: CliDemoOptions) {
   const store = new Map<string, IssuedWorkAuthorization>();
   const policy: AgentAuthorityBudgetPolicy = {
     orgId: "org_northwind_enterprise",
@@ -57,9 +64,20 @@ export async function runClearinghouseCliDemo(options?: {
   const environment =
     options?.paypalEnvironment ??
     (process.env.PAYPAL_ENVIRONMENT === "live" ? "live" : "sandbox");
+  const suppliedOrderId = (options?.orderId ?? process.env.PAYPAL_ORDER_ID ?? "").trim();
+  const suppliedAuthId = (
+    options?.authorizationId ??
+    process.env.PAYPAL_AUTHORIZATION_ID ??
+    ""
+  ).trim();
 
   let liveOrder: { readonly id: string; readonly status: string; readonly approveHref?: string } | null =
     null;
+  let liveCapture: PayPalCaptureResponse | null = null;
+  let settlementStatus:
+    | "LIVE_CAPTURE_COMPLETED"
+    | "ORDER_CREATED_AWAITING_BUYER_APPROVAL"
+    | "SIMULATED_REPLAY" = "SIMULATED_REPLAY";
 
   if (clientId && clientSecret) {
     const client = new PayPalClearinghouseClient({
@@ -68,39 +86,68 @@ export async function runClearinghouseCliDemo(options?: {
       environment,
       fetchFn: options?.fetchFn,
     });
-    const { order } = await client.createOrderAuthorization(DEMO_CLEARED_WORK_STATEMENT);
-    const approveLink = order.links?.find((l) => l.rel === "approve")?.href;
-    liveOrder = {
-      id: order.id,
-      status: order.status,
-      ...(approveLink ? { approveHref: approveLink } : {}),
-    };
+    if (suppliedOrderId || suppliedAuthId) {
+      if (!suppliedOrderId || !suppliedAuthId) {
+        throw new Error(
+          "Both orderId and authorizationId are required to execute live PayPal capture.",
+        );
+      }
+      const captured = await client.captureAuthorizedWork(
+        DEMO_CLEARED_WORK_STATEMENT,
+        suppliedOrderId,
+        suppliedAuthId,
+      );
+      liveOrder = { id: suppliedOrderId, status: "COMPLETED" };
+      liveCapture = captured.capture;
+      settlementStatus = "LIVE_CAPTURE_COMPLETED";
+    } else {
+      const { order } = await client.createOrderAuthorization(DEMO_CLEARED_WORK_STATEMENT);
+      const approveLink = order.links?.find((l) => l.rel === "approve")?.href;
+      liveOrder = {
+        id: order.id,
+        status: order.status,
+        ...(approveLink ? { approveHref: approveLink } : {}),
+      };
+      settlementStatus = "ORDER_CREATED_AWAITING_BUYER_APPROVAL";
+    }
   }
 
-  const replay = runClearinghouseDemoReplay(DEMO_CLEARED_WORK_STATEMENT, {
-    orderId: liveOrder?.id,
-  });
+  const replay =
+    settlementStatus === "LIVE_CAPTURE_COMPLETED"
+      ? runClearinghouseDemoReplay(DEMO_CLEARED_WORK_STATEMENT, {
+          orderId: suppliedOrderId,
+          authorizationId: suppliedAuthId,
+        })
+      : runClearinghouseDemoReplay(DEMO_CLEARED_WORK_STATEMENT);
+
+  const mode = !liveOrder
+    ? ("DETERMINISTIC_REPLAY" as const)
+    : environment === "live"
+      ? ("LIVE_PAYPAL_PRODUCTION" as const)
+      : ("LIVE_PAYPAL_SANDBOX" as const);
 
   return {
-    mode: liveOrder ? ("LIVE_PAYPAL_SANDBOX" as const) : ("DETERMINISTIC_REPLAY" as const),
+    mode,
+    settlementStatus,
     payeeMerchantId: DEMO_CLEARED_WORK_STATEMENT.payeeMerchantId,
     mcpAuth,
     mcpEvidence,
     liveOrder,
-    summary: {
+    liveCapture,
+    projectedSettlement: {
       statementId: replay.statementReceiptPayload.statementId,
-      payPalOrderId: replay.statementReceiptPayload.payPalOrderId,
+      replayOrderId: replay.statementReceiptPayload.payPalOrderId,
+      replayAuthorizationId: replay.statementReceiptPayload.payPalAuthorizationId,
       totalBilled: replay.statementReceiptPayload.totalBilledFormatted,
-      capturedPayable: replay.statementReceiptPayload.totalCapturedPayableFormatted,
-      voidedExcluded: replay.statementReceiptPayload.totalVoidedExcludedFormatted,
-      heldDisputed: replay.statementReceiptPayload.totalHeldDisputedFormatted,
+      projectedCapturedPayable: replay.statementReceiptPayload.totalCapturedPayableFormatted,
+      projectedVoidedExcluded: replay.statementReceiptPayload.totalVoidedExcludedFormatted,
+      projectedHeldDisputed: replay.statementReceiptPayload.totalHeldDisputedFormatted,
       planHash: replay.splitPlan.planHash,
     },
   };
 }
 
-const isMain =
-  process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
+const isMain = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
 if (isMain) {
   runClearinghouseCliDemo()
     .then((res) => {

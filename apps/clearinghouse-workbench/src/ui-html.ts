@@ -4,7 +4,31 @@ function serializeBigIntJson(value: unknown): string {
   return JSON.stringify(value, (_, v) => (typeof v === "bigint" ? v.toString() : v));
 }
 
-export function renderClearinghouseWorkbenchHtml(liveCredentialsConfigured: boolean): string {
+export interface WorkbenchUiRenderOptions {
+  readonly liveCredentialsConfigured: boolean;
+  readonly environment?: "sandbox" | "live";
+}
+
+export function renderClearinghouseWorkbenchHtml(
+  options: boolean | WorkbenchUiRenderOptions = false,
+): string {
+  const liveCredentialsConfigured =
+    typeof options === "boolean" ? options : options.liveCredentialsConfigured;
+  const environment =
+    typeof options === "boolean" ? "sandbox" : (options.environment ?? "sandbox");
+
+  const badgeText = !liveCredentialsConfigured
+    ? "● Deterministic Replay Mode"
+    : environment === "live"
+      ? "● PayPal Production API Connected"
+      : "● PayPal Sandbox API Connected";
+
+  const initialMode = !liveCredentialsConfigured
+    ? "DETERMINISTIC_REPLAY"
+    : environment === "live"
+      ? "LIVE_PAYPAL_PRODUCTION_READY"
+      : "LIVE_PAYPAL_SANDBOX_READY";
+
   const initialReplay = runClearinghouseDemoReplay();
   const initialDataJson = serializeBigIntJson(initialReplay);
 
@@ -58,9 +82,7 @@ export function renderClearinghouseWorkbenchHtml(liveCredentialsConfigured: bool
       </div>
       <div style="display:flex; gap:10px; align-items:center;">
         <span class="badge">Merchant: 4MWDGZ4MWSE5J</span>
-        <span class="badge ${liveCredentialsConfigured ? "live" : ""}">
-          ${liveCredentialsConfigured ? "● PayPal Sandbox API Connected" : "● Deterministic Replay Mode"}
-        </span>
+        <span class="badge ${liveCredentialsConfigured ? "live" : ""}">${badgeText}</span>
       </div>
     </header>
 
@@ -96,7 +118,7 @@ export function renderClearinghouseWorkbenchHtml(liveCredentialsConfigured: bool
         <div style="display:flex; gap:8px;">
           <input type="search" id="quick-filter" placeholder="Filter lines, T-Class (T5/T6), reason codes..." />
           <button class="secondary" id="btn-export-csv">Export Statement CSV</button>
-          <button class="emerald" id="btn-run-paypal">Execute PayPal Orders v2 AUTHORIZE + Split Plan</button>
+          <button class="emerald" id="btn-run-paypal">Create PayPal Order v2 AUTHORIZE + Preview Split Plan</button>
         </div>
       </div>
       <div id="statement-grid" style="height: 250px; width: 100%;"></div>
@@ -104,12 +126,12 @@ export function renderClearinghouseWorkbenchHtml(liveCredentialsConfigured: bool
 
     <div class="two-col">
       <div class="panel">
-        <h2>M2 → M0 → M1 → M3 Escrow &amp; Audit Timeline (Bryntum Milestone Model)</h2>
+        <h2>M2 → M0 → M1 → M3 Escrow &amp; Audit Milestone List (BryntumTimelineMilestone Schema)</h2>
         <div class="timeline-list" id="timeline-container"></div>
       </div>
       <div class="panel">
         <div class="toolbar" style="margin-bottom:8px;">
-          <h2>M2 Agent Authority MCP Server &amp; Live PayPal Sandbox Inspector</h2>
+          <h2>M2 Agent Authority MCP Server &amp; Live PayPal Inspector</h2>
           <div style="display:flex; gap:6px;">
             <button class="secondary" id="btn-mcp-auth">1. MCP Authorize ($0.99)</button>
             <button class="secondary" id="btn-mcp-restricted">2. Restricted Op Gate</button>
@@ -173,45 +195,67 @@ export function renderClearinghouseWorkbenchHtml(liveCredentialsConfigured: bool
 
     async function postJson(url, body) {
       const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-      return res.json();
+      const text = await res.text();
+      let parsed;
+      try {
+        parsed = text ? JSON.parse(text) : {};
+      } catch {
+        throw new Error(\`Invalid JSON response (HTTP \${res.status}): \${text.slice(0, 200)}\`);
+      }
+      if (!res.ok) {
+        throw new Error(parsed && parsed.error ? (typeof parsed.error === "string" ? parsed.error : JSON.stringify(parsed.error)) : \`Request failed with HTTP \${res.status}\`);
+      }
+      return parsed;
     }
 
-    document.getElementById("btn-run-paypal").addEventListener("click", async () => {
+    async function runInspectorAction(label, fn) {
       const out = document.getElementById("inspector-output");
-      out.textContent = "Executing PayPal Orders v2 AUTHORIZE + Split Capture Plan...";
-      const res = await postJson("/api/paypal/authorize", {});
-      if (res.replay && res.replay.bryntumTimeline) renderTimeline(res.replay.bryntumTimeline);
-      out.textContent = JSON.stringify(res, null, 2);
-    });
+      out.textContent = label;
+      try {
+        const res = await fn();
+        const timeline = (res.projectedReplay && res.projectedReplay.bryntumTimeline) || (res.replay && res.replay.bryntumTimeline);
+        if (timeline) renderTimeline(timeline);
+        out.textContent = JSON.stringify(res, null, 2);
+      } catch (err) {
+        out.textContent = JSON.stringify({ error: err instanceof Error ? err.message : String(err) }, null, 2);
+      }
+    }
 
-    document.getElementById("btn-mcp-auth").addEventListener("click", async () => {
-      const res = await postJson("/api/mcp", {
-        jsonrpc: "2.0", id: "mcp-1", method: "tools/call",
-        params: { name: "request_work_authorization", arguments: { requestId: "req_live_fin_4379", taskId: "tsk_fin_4379", orgId: "org_northwind_enterprise", agentId: "agt_fin_support_01", vendor: "fin", taskType: "support_resolution", operation: "resolve_conversation", requestedMicro: "990000", cumulativePeriodMicro: "4334220000" } }
-      });
-      document.getElementById("inspector-output").textContent = JSON.stringify(res, null, 2);
-    });
+    document.getElementById("btn-run-paypal").addEventListener("click", () =>
+      runInspectorAction("Executing PayPal Orders v2 AUTHORIZE + Split Plan...", () => postJson("/api/paypal/authorize", {}))
+    );
 
-    document.getElementById("btn-mcp-restricted").addEventListener("click", async () => {
-      const res = await postJson("/api/mcp", {
-        jsonrpc: "2.0", id: "mcp-2", method: "tools/call",
-        params: { name: "request_work_authorization", arguments: { requestId: "req_live_refund_01", taskId: "tsk_refund_01", orgId: "org_northwind_enterprise", agentId: "agt_fin_support_01", vendor: "fin", taskType: "support_resolution", operation: "issue_refund_above_floor", requestedMicro: "2500000", cumulativePeriodMicro: "4334220000" } }
-      });
-      document.getElementById("inspector-output").textContent = JSON.stringify(res, null, 2);
-    });
+    document.getElementById("btn-mcp-auth").addEventListener("click", () =>
+      runInspectorAction("Requesting MCP pre-execution work authorization...", () =>
+        postJson("/api/mcp", {
+          jsonrpc: "2.0", id: "mcp-1", method: "tools/call",
+          params: { name: "request_work_authorization", arguments: { requestId: "req_live_fin_4379", taskId: "tsk_fin_4379", orgId: "org_northwind_enterprise", agentId: "agt_fin_support_01", vendor: "fin", taskType: "support_resolution", operation: "resolve_conversation", requestedMicro: "990000", cumulativePeriodMicro: "0" } }
+        })
+      )
+    );
 
-    document.getElementById("btn-mcp-settle").addEventListener("click", async () => {
-      const res = await postJson("/api/mcp", {
-        jsonrpc: "2.0", id: "mcp-3", method: "tools/call",
-        params: { name: "settle_cleared_work", arguments: { orderId: "PAYPAL-ORDER-8841920X", authorizationId: "PAYPAL-AUTH-3391042A" } }
-      });
-      document.getElementById("inspector-output").textContent = JSON.stringify(res, null, 2);
-    });
+    document.getElementById("btn-mcp-restricted").addEventListener("click", () =>
+      runInspectorAction("Checking restricted operation gate...", () =>
+        postJson("/api/mcp", {
+          jsonrpc: "2.0", id: "mcp-2", method: "tools/call",
+          params: { name: "request_work_authorization", arguments: { requestId: "req_live_refund_01", taskId: "tsk_refund_01", orgId: "org_northwind_enterprise", agentId: "agt_fin_support_01", vendor: "fin", taskType: "support_resolution", operation: "issue_refund_above_floor", requestedMicro: "2500000", cumulativePeriodMicro: "0" } }
+        })
+      )
+    );
+
+    document.getElementById("btn-mcp-settle").addEventListener("click", () =>
+      runInspectorAction("Running MCP settle_cleared_work...", () =>
+        postJson("/api/mcp", {
+          jsonrpc: "2.0", id: "mcp-3", method: "tools/call",
+          params: { name: "settle_cleared_work", arguments: { orderId: "PAYPAL-ORDER-8841920X", authorizationId: "PAYPAL-AUTH-3391042A" } }
+        })
+      )
+    );
 
     initGrid(INITIAL_STATE.agGridRows, INITIAL_STATE.statementReceiptPayload);
     renderTimeline(INITIAL_STATE.bryntumTimeline);
     document.getElementById("inspector-output").textContent = JSON.stringify({
-      mode: ${liveCredentialsConfigured ? '"LIVE_PAYPAL_SANDBOX_READY"' : '"DETERMINISTIC_REPLAY"'},
+      mode: ${JSON.stringify(initialMode)},
       orderAuthPayload: INITIAL_STATE.orderAuth,
       splitCapturePlan: INITIAL_STATE.splitPlan,
     }, null, 2);

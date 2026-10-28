@@ -76,13 +76,14 @@ export interface MCPReconciledWorkOutcome {
   readonly reconciliationHash: string;
 }
 
-const DEFAULT_APPROVAL_SECRET = "floe_default_controller_approval_secret_v1";
-
 export function createHumanApprovalProof(
   req: Pick<MCPWorkAuthorizationRequest, "requestId" | "orgId" | "agentId" | "operation" | "requestedMicro">,
   approverId: string,
-  approvalSecret: string = DEFAULT_APPROVAL_SECRET,
+  approvalSecret: string,
 ): HumanApprovalProof {
+  if (!approvalSecret || !approvalSecret.trim()) {
+    throw new Error("createHumanApprovalProof requires a non-empty approvalSecret.");
+  }
   const payload = `${req.requestId}|${req.orgId}|${req.agentId}|${req.operation}|${req.requestedMicro.toString()}|${approverId}`;
   return { approverId, signature: createHmac("sha256", approvalSecret).update(payload, "utf8").digest("hex") };
 }
@@ -94,8 +95,9 @@ function verifyHumanApprovalProof(
 ): boolean {
   const proof = req.humanApprovalProof;
   if (!proof || !proof.approverId.trim() || !proof.signature.trim()) return false;
-  if (policy.authorizedApprovers && !policy.authorizedApprovers.includes(proof.approverId)) return false;
-  const secret = overrideSecret ?? policy.approvalSecret ?? DEFAULT_APPROVAL_SECRET;
+  if (!policy.authorizedApprovers || !policy.authorizedApprovers.includes(proof.approverId)) return false;
+  const secret = (overrideSecret ?? policy.approvalSecret ?? "").trim();
+  if (!secret) return false;
   const expected = createHumanApprovalProof(req, proof.approverId, secret).signature;
   const actualBuf = Buffer.from(proof.signature, "utf8");
   const expectedBuf = Buffer.from(expected, "utf8");

@@ -120,8 +120,15 @@ export function runClearinghouseDemoReplay(
   },
 ) {
   const settlementMode = options?.settlementMode ?? "ORDER_V2_CAPTURE";
-  const orderId = options?.orderId ?? "PAYPAL-ORDER-8841920X";
-  const authorizationId = options?.authorizationId ?? "PAYPAL-AUTH-3391042A";
+  const hasCustomOrder = Boolean(options?.orderId?.trim());
+  const hasCustomAuth = Boolean(options?.authorizationId?.trim());
+  if (hasCustomOrder !== hasCustomAuth) {
+    throw new Error(
+      "Both orderId and authorizationId must be provided together when overriding deterministic replay IDs.",
+    );
+  }
+  const orderId = hasCustomOrder ? options!.orderId!.trim() : "PAYPAL-ORDER-8841920X";
+  const authorizationId = hasCustomAuth ? options!.authorizationId!.trim() : "PAYPAL-AUTH-3391042A";
 
   const orderAuth = buildPayPalOrderAuthorization(statement);
   const splitPlan = buildPayPalSplitCapturePlan(statement, orderId, authorizationId);
