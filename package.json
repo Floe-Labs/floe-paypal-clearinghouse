@@ -7,9 +7,9 @@
   "type": "module",
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
-    "start": "npm run build && node dist/apps/clearinghouse-workbench/src/server.js",
-    "dev": "npm run build && node dist/apps/clearinghouse-workbench/src/server.js",
-    "demo": "npm run build && node dist/apps/clearinghouse-workbench/src/cli-demo.js",
+    "start": "npm run build && node --env-file-if-exists=.env.local --env-file-if-exists=.env dist/apps/clearinghouse-workbench/src/server.js",
+    "dev": "npm run build && node --env-file-if-exists=.env.local --env-file-if-exists=.env dist/apps/clearinghouse-workbench/src/server.js",
+    "demo": "npm run build && node --env-file-if-exists=.env.local --env-file-if-exists=.env dist/apps/clearinghouse-workbench/src/cli-demo.js",
     "test": "vitest run --maxWorkers=10",
     "typecheck": "tsc --noEmit"
   },
