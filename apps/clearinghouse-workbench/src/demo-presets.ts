@@ -36,6 +36,14 @@ export const LOCKED_TASK_TYPES: readonly string[] = [
   "llm_inference",
 ];
 
+export function sanitizePayPalCredential(raw?: string): string {
+  const trimmed = (raw ?? "").trim();
+  if (!trimmed || (trimmed.startsWith("<") && trimmed.endsWith(">")) || trimmed.startsWith("your_")) {
+    return "";
+  }
+  return trimmed;
+}
+
 export type DemoPresetKey = "fin" | "vapi" | "autonomous_eng";
 
 export interface EvalWaterfallAndEconomics {

@@ -11,7 +11,7 @@ import {
   type ClearedStatementLine,
   type ClearedWorkStatementInput,
 } from "../../../packages/paypal-settlement-provider/src/index.js";
-import { LOCKED_17_VENDORS, LOCKED_TASK_TYPES } from "./demo-presets.js";
+import { LOCKED_17_VENDORS, LOCKED_TASK_TYPES, sanitizePayPalCredential } from "./demo-presets.js";
 import { renderClearinghouseWorkbenchHtml } from "./ui-html.js";
 import {
   DEMO_CLEARED_WORK_STATEMENT,
@@ -136,8 +136,8 @@ export interface WorkbenchServerOptions {
 
 export function createClearinghouseRequestHandler(options?: WorkbenchServerOptions) {
   const store = new Map<string, IssuedWorkAuthorization>();
-  const clientId = (options?.paypalClientId ?? process.env.PAYPAL_CLIENT_ID ?? "").trim();
-  const clientSecret = (options?.paypalClientSecret ?? process.env.PAYPAL_CLIENT_SECRET ?? "").trim();
+  const clientId = sanitizePayPalCredential(options?.paypalClientId ?? process.env.PAYPAL_CLIENT_ID);
+  const clientSecret = sanitizePayPalCredential(options?.paypalClientSecret ?? process.env.PAYPAL_CLIENT_SECRET);
   const environment =
     options?.paypalEnvironment ?? (process.env.PAYPAL_ENVIRONMENT === "live" ? "live" : "sandbox");
   const approvalSecret = (options?.approvalSecret ?? process.env.FLOE_APPROVAL_SECRET ?? "").trim();

@@ -10,7 +10,12 @@ import {
   buildMultiVendorPayoutBatch,
   type PayPalCaptureResponse,
 } from "../../../packages/paypal-settlement-provider/src/index.js";
-import { LOCKED_17_VENDORS, LOCKED_TASK_TYPES, type DemoPresetKey } from "./demo-presets.js";
+import {
+  LOCKED_17_VENDORS,
+  LOCKED_TASK_TYPES,
+  sanitizePayPalCredential,
+  type DemoPresetKey,
+} from "./demo-presets.js";
 import {
   getAllDemoPresetStatements,
   resolveDemoPresetStatement,
@@ -67,17 +72,15 @@ export async function runClearinghouseCliDemo(options?: CliDemoOptions) {
     evidenceRefs: ["ev:intercom:conv_batch_verified_4378"],
   });
 
-  const clientId = (options?.paypalClientId ?? process.env.PAYPAL_CLIENT_ID ?? "").trim();
-  const clientSecret = (options?.paypalClientSecret ?? process.env.PAYPAL_CLIENT_SECRET ?? "").trim();
+  const clientId = sanitizePayPalCredential(options?.paypalClientId ?? process.env.PAYPAL_CLIENT_ID);
+  const clientSecret = sanitizePayPalCredential(options?.paypalClientSecret ?? process.env.PAYPAL_CLIENT_SECRET);
   const environment =
     options?.paypalEnvironment ??
     (process.env.PAYPAL_ENVIRONMENT === "live" ? "live" : "sandbox");
-  const suppliedOrderId = (options?.orderId ?? process.env.PAYPAL_ORDER_ID ?? "").trim();
-  const suppliedAuthId = (
-    options?.authorizationId ??
-    process.env.PAYPAL_AUTHORIZATION_ID ??
-    ""
-  ).trim();
+  const suppliedOrderId = sanitizePayPalCredential(options?.orderId ?? process.env.PAYPAL_ORDER_ID);
+  const suppliedAuthId = sanitizePayPalCredential(
+    options?.authorizationId ?? process.env.PAYPAL_AUTHORIZATION_ID,
+  );
 
   let liveOrder: { readonly id: string; readonly status: string; readonly approveHref?: string } | null =
     null;
