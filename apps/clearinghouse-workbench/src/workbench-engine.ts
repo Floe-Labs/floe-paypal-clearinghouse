@@ -252,10 +252,11 @@ export function runClearinghouseDemoReplay(
   };
 }
 
-export function resolveDemoPresetStatement(preset?: string): ClearedWorkStatementInput {
+export function resolveDemoPresetStatement(preset?: unknown): ClearedWorkStatementInput {
+  if (preset === undefined || preset === "" || preset === "fin") return DEMO_CLEARED_WORK_STATEMENT;
   if (preset === "vapi") return VAPI_VOICE_STATEMENT;
   if (preset === "autonomous_eng") return AUTONOMOUS_ENG_STATEMENT;
-  return DEMO_CLEARED_WORK_STATEMENT;
+  throw new Error(`Unknown vendor preset "${String(preset)}". Expected "fin", "vapi", or "autonomous_eng".`);
 }
 
 export function getAllDemoPresetStatements(): readonly [

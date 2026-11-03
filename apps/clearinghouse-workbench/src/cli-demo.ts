@@ -11,6 +11,7 @@ import {
   type PayPalCaptureResponse,
 } from "../../../packages/paypal-settlement-provider/src/index.js";
 import {
+  computeEvalWaterfallAndEconomics,
   LOCKED_17_VENDORS,
   LOCKED_TASK_TYPES,
   sanitizePayPalCredential,
@@ -34,6 +35,7 @@ export interface CliDemoOptions {
 
 export async function runClearinghouseCliDemo(options?: CliDemoOptions) {
   const statement = resolveDemoPresetStatement(options?.preset ?? process.env.FLOE_DEMO_PRESET);
+  const fx = computeEvalWaterfallAndEconomics(statement).mcpFixture;
   const store = new Map<string, IssuedWorkAuthorization>();
   const policy: AgentAuthorityBudgetPolicy = {
     orgId: "org_northwind_enterprise",
@@ -48,28 +50,28 @@ export async function runClearinghouseCliDemo(options?: CliDemoOptions) {
   const mcpAuth = handleRequestWorkAuthorization(
     policy,
     {
-      requestId: "req_demo_fin_001",
-      taskId: "tsk_demo_fin_001",
+      requestId: fx.requestId,
+      taskId: fx.taskId,
       orgId: "org_northwind_enterprise",
       agentId: "agt_fin_support_01",
-      vendor: "fin",
-      taskType: "support_resolution",
-      operation: "resolve_conversation",
-      requestedMicro: 990_000n,
-      cumulativePeriodMicro: 4_333_230_000n,
+      vendor: fx.vendor,
+      taskType: fx.taskType,
+      operation: fx.operation,
+      requestedMicro: fx.requestedMicro,
+      cumulativePeriodMicro: fx.cumulativePeriodMicro,
     },
     { store },
   );
 
   const mcpEvidence = handleReportWorkEvidence(store, {
-    taskId: "tsk_demo_fin_001",
+    taskId: fx.taskId,
     authorizationTokenHash: mcpAuth.authorizationTokenHash,
     workPerformedStatus: "completed",
-    vendorBilledMicro: 990_000n,
+    vendorBilledMicro: fx.requestedMicro,
     verificationStatus: "verified",
     contractValid: true,
     buyerAccepted: true,
-    evidenceRefs: ["ev:intercom:conv_batch_verified_4378"],
+    evidenceRefs: [fx.evidenceRef],
   });
 
   const clientId = sanitizePayPalCredential(options?.paypalClientId ?? process.env.PAYPAL_CLIENT_ID);

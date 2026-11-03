@@ -14,7 +14,6 @@ import {
 import { LOCKED_17_VENDORS, LOCKED_TASK_TYPES, sanitizePayPalCredential } from "./demo-presets.js";
 import { renderClearinghouseWorkbenchHtml } from "./ui-html.js";
 import {
-  DEMO_CLEARED_WORK_STATEMENT,
   getAllDemoPresetStatements,
   resolveDemoPresetStatement,
   runClearinghouseDemoReplay,
@@ -121,7 +120,7 @@ function normalizeMcpArguments(
   }
   if (toolName === "settle_cleared_work" || toolName === "settle_cleared_statement") {
     next.statement =
-      next.statement !== undefined ? normalizeStatementInput(next.statement) : DEMO_CLEARED_WORK_STATEMENT;
+      next.statement !== undefined ? normalizeStatementInput(next.statement) : resolveDemoPresetStatement(next.preset);
   }
   return next;
 }
@@ -209,7 +208,7 @@ export function createClearinghouseRequestHandler(options?: WorkbenchServerOptio
 
       if (method === "POST" && url.pathname === "/api/paypal/authorize") {
         const body = await readJsonBody(req);
-        const stmt = resolveDemoPresetStatement(typeof body.preset === "string" ? body.preset : undefined);
+        const stmt = resolveDemoPresetStatement(body.preset);
         const suppliedOrderId = typeof body.orderId === "string" ? body.orderId.trim() : "";
         const suppliedAuthId = typeof body.authorizationId === "string" ? body.authorizationId.trim() : "";
 

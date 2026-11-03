@@ -88,7 +88,7 @@ export function renderClearinghouseWorkbenchHtml(
           <option value="vapi">Preset 2: Vapi Voice AI — Wave 2 Telemetry ($1,900.00)</option>
           <option value="autonomous_eng">Preset 3: Cursor + Copilot + CodeRabbit ($3,160.00)</option>
         </select>
-        <span class="badge">17 Locked Vendors · Merchant: 4MWDGZ4MWSE5J</span>
+        <span class="badge" id="merchant-badge">17 Locked Vendors · Merchant: 4MWDGZ4MWSE5J</span>
         <span class="badge ${liveCredentialsConfigured ? "live" : ""}">${badgeText}</span>
       </div>
     </header>
@@ -166,8 +166,11 @@ export function renderClearinghouseWorkbenchHtml(
 
   <script>
     const INITIAL_STATE = ${initialDataJson};
-    let gridApi = null;
-    let activePreset = "fin";
+    let gridApi = null, activePreset = "fin", presetSeq = 0, mcpSeq = 0;
+    let activeStatementId = INITIAL_STATE.statementReceiptPayload.statementId;
+    let activeMcpFixture = INITIAL_STATE.unitEconomicsAndEval.mcpFixture;
+    const ACTION_BTNS = ["btn-run-paypal", "btn-mcp-auth", "btn-mcp-restricted", "btn-mcp-settle", "btn-multi-payout"];
+    function setActionsDisabled(disabled) { ACTION_BTNS.forEach((id) => { document.getElementById(id).disabled = disabled; }); }
 
     function renderTimeline(milestones) {
       document.getElementById("timeline-container").innerHTML = milestones.map((m) => \`
@@ -178,32 +181,31 @@ export function renderClearinghouseWorkbenchHtml(
     }
 
     function makeTotalRow(r) {
-      return [{
-        lineKey: "TOTAL · " + r.statementId,
-        description: "Conservation check: Billed === Captured + Voided + Held in Dispute",
-        tClass: "T1–T7", reasonCode: "integer_micro_conservation",
-        billedFormatted: r.totalBilledFormatted, clearedPayableFormatted: r.totalCapturedPayableFormatted,
-        excludedVoidFormatted: r.totalVoidedExcludedFormatted, disputedHoldFormatted: r.totalHeldDisputedFormatted,
-        payPalSettlementAction: "CAPTURE",
-      }];
+      return [{ lineKey: "TOTAL · " + r.statementId, description: "Conservation check: Billed === Captured + Voided + Held in Dispute", tClass: "T1–T7", reasonCode: "integer_micro_conservation", billedFormatted: r.totalBilledFormatted, clearedPayableFormatted: r.totalCapturedPayableFormatted, excludedVoidFormatted: r.totalVoidedExcludedFormatted, disputedHoldFormatted: r.totalHeldDisputedFormatted, payPalSettlementAction: "CAPTURE" }];
     }
 
     function applyReplayState(state) {
       const r = state.statementReceiptPayload, e = state.unitEconomicsAndEval;
+      activeStatementId = r.statementId;
       document.getElementById("kpi-billed").textContent = r.totalBilledFormatted;
       document.getElementById("kpi-captured").textContent = r.totalCapturedPayableFormatted;
       document.getElementById("kpi-voided").textContent = r.totalVoidedExcludedFormatted;
       document.getElementById("kpi-held").textContent = r.totalHeldDisputedFormatted;
       document.getElementById("stmt-subtitle").innerHTML = \`Statement <code>\${r.statementId}</code> (v\${r.statementVersion}) · Buyer: \${r.buyerName} · Vendor: \${r.vendorName}\`;
       if (e) {
+        if (e.kpiSubtitles) {
+          document.getElementById("kpi-sub-billed").textContent = e.kpiSubtitles.billed;
+          document.getElementById("kpi-sub-captured").textContent = e.kpiSubtitles.captured;
+          document.getElementById("kpi-sub-voided").textContent = e.kpiSubtitles.voided;
+          document.getElementById("kpi-sub-held").textContent = e.kpiSubtitles.held;
+        }
+        if (e.payeeMerchantId) document.getElementById("merchant-badge").textContent = "17 Locked Vendors · Merchant: " + e.payeeMerchantId;
+        if (e.mcpFixture) { activeMcpFixture = e.mcpFixture; document.getElementById("btn-mcp-auth").textContent = e.mcpFixture.buttonLabel; }
         document.getElementById("econ-summary").textContent = \`Unverified Billed: \${e.unverifiedEffectiveUnitCostFormatted} → Verified Cleared: \${e.verifiedClearedUnitCostFormatted} | Shielded: \${e.leakagePreventedFormatted} (\${e.leakagePercentFormatted})\`;
         document.getElementById("econ-scope").textContent = e.scopeKeyAttribution + " · " + e.pricingModelLabel;
         document.getElementById("eval-waterfall").innerHTML = \`<span>\${e.evalWaterfall.tierA_BuyerEval}</span><span>\${e.evalWaterfall.tierB_VendorEval}</span><span>\${e.evalWaterfall.tierC_FloeDeterministicEval}</span>\`;
       }
-      if (gridApi) {
-        gridApi.setGridOption("rowData", state.agGridRows);
-        gridApi.setGridOption("pinnedBottomRowData", makeTotalRow(r));
-      }
+      if (gridApi) { gridApi.setGridOption("rowData", state.agGridRows); gridApi.setGridOption("pinnedBottomRowData", makeTotalRow(r)); }
       renderTimeline(state.bryntumTimeline);
     }
 
@@ -230,7 +232,7 @@ export function renderClearinghouseWorkbenchHtml(
     }
 
     document.getElementById("quick-filter").addEventListener("input", (e) => gridApi && gridApi.setGridOption("quickFilterText", e.target.value));
-    document.getElementById("btn-export-csv").addEventListener("click", () => gridApi && gridApi.exportDataAsCsv({ fileName: "floe-cleared-work-statement-CWS-2026-10-FIN-0042.csv" }));
+    document.getElementById("btn-export-csv").addEventListener("click", () => gridApi && gridApi.exportDataAsCsv({ fileName: "floe-cleared-work-statement-" + activeStatementId + ".csv" }));
 
     async function postJson(url, body) {
       const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -255,18 +257,28 @@ export function renderClearinghouseWorkbenchHtml(
     }
 
     document.getElementById("btn-run-paypal").addEventListener("click", () => runInspectorAction("Executing PayPal Orders v2 AUTHORIZE + Split Plan...", () => postJson("/api/paypal/authorize", { preset: activePreset })));
-    document.getElementById("preset-selector").addEventListener("change", (e) => {
-      activePreset = e.target.value;
-      runInspectorAction("Loading vendor statement preset " + activePreset + "...", async () => {
-        const data = await (await fetch("/api/replay?preset=" + encodeURIComponent(activePreset))).json();
+    document.getElementById("preset-selector").addEventListener("change", async (ev) => {
+      const selectedPreset = ev.target.value, seq = ++presetSeq, out = document.getElementById("inspector-output");
+      setActionsDisabled(true);
+      out.textContent = "Loading vendor statement preset " + selectedPreset + "...";
+      try {
+        const res = await fetch("/api/replay?preset=" + encodeURIComponent(selectedPreset));
+        const data = await res.json();
+        if (!res.ok) throw new Error(data && data.error ? data.error : "HTTP " + res.status);
+        if (seq !== presetSeq) return;
+        activePreset = selectedPreset;
         applyReplayState(data);
-        return data;
-      });
+        out.textContent = JSON.stringify(data, null, 2);
+      } catch (err) {
+        if (seq === presetSeq) { ev.target.value = activePreset; out.textContent = JSON.stringify({ error: err instanceof Error ? err.message : String(err) }, null, 2); }
+      } finally {
+        if (seq === presetSeq) setActionsDisabled(false);
+      }
     });
     document.getElementById("btn-multi-payout").addEventListener("click", () => runInspectorAction("Building Multi-Vendor PayPal Payouts Batch...", async () => (await fetch("/api/replay?preset=" + encodeURIComponent(activePreset) + "&mode=MULTI_VENDOR_PAYOUT")).json()));
-    document.getElementById("btn-mcp-auth").addEventListener("click", () => runInspectorAction("Requesting MCP pre-execution work authorization...", () => postJson("/api/mcp", { jsonrpc: "2.0", id: "mcp-1", method: "tools/call", params: { name: "request_work_authorization", arguments: { requestId: "req_live_fin_4379", taskId: "tsk_fin_4379", orgId: "org_northwind_enterprise", agentId: "agt_fin_support_01", vendor: "fin", taskType: "support_resolution", operation: "resolve_conversation", requestedMicro: "990000", cumulativePeriodMicro: "0" } } })));
-    document.getElementById("btn-mcp-restricted").addEventListener("click", () => runInspectorAction("Checking restricted operation gate...", () => postJson("/api/mcp", { jsonrpc: "2.0", id: "mcp-2", method: "tools/call", params: { name: "request_work_authorization", arguments: { requestId: "req_live_refund_01", taskId: "tsk_refund_01", orgId: "org_northwind_enterprise", agentId: "agt_fin_support_01", vendor: "fin", taskType: "support_resolution", operation: "issue_refund_above_floor", requestedMicro: "2500000", cumulativePeriodMicro: "0" } } })));
-    document.getElementById("btn-mcp-settle").addEventListener("click", () => runInspectorAction("Running MCP settle_cleared_work...", () => postJson("/api/mcp", { jsonrpc: "2.0", id: "mcp-3", method: "tools/call", params: { name: "settle_cleared_work", arguments: { orderId: "PAYPAL-ORDER-8841920X", authorizationId: "PAYPAL-AUTH-3391042A" } } })));
+    document.getElementById("btn-mcp-auth").addEventListener("click", () => runInspectorAction("Requesting MCP pre-execution work authorization...", () => postJson("/api/mcp", { jsonrpc: "2.0", id: "mcp-1", method: "tools/call", params: { name: "request_work_authorization", arguments: { requestId: activeMcpFixture.requestId + "_" + (++mcpSeq), taskId: activeMcpFixture.taskId, orgId: "org_northwind_enterprise", agentId: "agt_fin_support_01", vendor: activeMcpFixture.vendor, taskType: activeMcpFixture.taskType, operation: activeMcpFixture.operation, requestedMicro: String(activeMcpFixture.requestedMicro), cumulativePeriodMicro: "0" } } })));
+    document.getElementById("btn-mcp-restricted").addEventListener("click", () => runInspectorAction("Checking restricted operation gate...", () => postJson("/api/mcp", { jsonrpc: "2.0", id: "mcp-2", method: "tools/call", params: { name: "request_work_authorization", arguments: { requestId: "req_live_refund_" + activePreset + "_" + (++mcpSeq), taskId: "tsk_refund_" + activePreset, orgId: "org_northwind_enterprise", agentId: "agt_fin_support_01", vendor: activeMcpFixture.vendor, taskType: activeMcpFixture.taskType, operation: "issue_refund_above_floor", requestedMicro: "2500000", cumulativePeriodMicro: "0" } } })));
+    document.getElementById("btn-mcp-settle").addEventListener("click", () => runInspectorAction("Running MCP settle_cleared_work...", () => postJson("/api/mcp", { jsonrpc: "2.0", id: "mcp-3", method: "tools/call", params: { name: "settle_cleared_work", arguments: { preset: activePreset, orderId: "PAYPAL-ORDER-8841920X", authorizationId: "PAYPAL-AUTH-3391042A" } } })));
 
     initGrid(INITIAL_STATE.agGridRows, INITIAL_STATE.statementReceiptPayload);
     applyReplayState(INITIAL_STATE);
