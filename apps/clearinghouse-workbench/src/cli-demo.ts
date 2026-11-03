@@ -7,11 +7,18 @@ import {
 } from "../../../packages/agent-authority-mcp/src/index.js";
 import {
   PayPalClearinghouseClient,
+  buildMultiVendorPayoutBatch,
   type PayPalCaptureResponse,
 } from "../../../packages/paypal-settlement-provider/src/index.js";
-import { DEMO_CLEARED_WORK_STATEMENT, runClearinghouseDemoReplay } from "./workbench-engine.js";
+import { LOCKED_17_VENDORS, LOCKED_TASK_TYPES, type DemoPresetKey } from "./demo-presets.js";
+import {
+  getAllDemoPresetStatements,
+  resolveDemoPresetStatement,
+  runClearinghouseDemoReplay,
+} from "./workbench-engine.js";
 
 export interface CliDemoOptions {
+  readonly preset?: DemoPresetKey;
   readonly paypalClientId?: string;
   readonly paypalClientSecret?: string;
   readonly paypalEnvironment?: "sandbox" | "live";
@@ -21,12 +28,13 @@ export interface CliDemoOptions {
 }
 
 export async function runClearinghouseCliDemo(options?: CliDemoOptions) {
+  const statement = resolveDemoPresetStatement(options?.preset ?? process.env.FLOE_DEMO_PRESET);
   const store = new Map<string, IssuedWorkAuthorization>();
   const policy: AgentAuthorityBudgetPolicy = {
     orgId: "org_northwind_enterprise",
     agentId: "agt_fin_support_01",
-    allowedVendors: ["fin", "zendesk", "coderabbit"],
-    allowedTaskTypes: ["support_resolution", "code_review"],
+    allowedVendors: LOCKED_17_VENDORS,
+    allowedTaskTypes: LOCKED_TASK_TYPES,
     maxTaskMicro: 5_000_000n,
     maxPeriodMicro: 10_000_000_000n,
     restrictedOpsRequireApproval: ["issue_refund_above_floor"],
@@ -93,7 +101,7 @@ export async function runClearinghouseCliDemo(options?: CliDemoOptions) {
         );
       }
       const captured = await client.captureAuthorizedWork(
-        DEMO_CLEARED_WORK_STATEMENT,
+        statement,
         suppliedOrderId,
         suppliedAuthId,
       );
@@ -101,7 +109,7 @@ export async function runClearinghouseCliDemo(options?: CliDemoOptions) {
       liveCapture = captured.capture;
       settlementStatus = "LIVE_CAPTURE_COMPLETED";
     } else {
-      const { order } = await client.createOrderAuthorization(DEMO_CLEARED_WORK_STATEMENT);
+      const { order } = await client.createOrderAuthorization(statement);
       const approveLink = order.links?.find((l) => l.rel === "approve")?.href;
       liveOrder = {
         id: order.id,
@@ -114,11 +122,16 @@ export async function runClearinghouseCliDemo(options?: CliDemoOptions) {
 
   const replay =
     settlementStatus === "LIVE_CAPTURE_COMPLETED"
-      ? runClearinghouseDemoReplay(DEMO_CLEARED_WORK_STATEMENT, {
+      ? runClearinghouseDemoReplay(statement, {
           orderId: suppliedOrderId,
           authorizationId: suppliedAuthId,
         })
-      : runClearinghouseDemoReplay(DEMO_CLEARED_WORK_STATEMENT);
+      : runClearinghouseDemoReplay(statement);
+
+  const multiVendorBatch = buildMultiVendorPayoutBatch(
+    "BATCH-2026-10-ALL-WAVES",
+    getAllDemoPresetStatements(),
+  );
 
   const mode = !liveOrder
     ? ("DETERMINISTIC_REPLAY" as const)
@@ -129,11 +142,12 @@ export async function runClearinghouseCliDemo(options?: CliDemoOptions) {
   return {
     mode,
     settlementStatus,
-    payeeMerchantId: DEMO_CLEARED_WORK_STATEMENT.payeeMerchantId,
+    payeeMerchantId: statement.payeeMerchantId,
     mcpAuth,
     mcpEvidence,
     liveOrder,
     liveCapture,
+    unitEconomicsAndEval: replay.unitEconomicsAndEval,
     projectedSettlement: {
       statementId: replay.statementReceiptPayload.statementId,
       replayOrderId: replay.statementReceiptPayload.payPalOrderId,
@@ -143,6 +157,11 @@ export async function runClearinghouseCliDemo(options?: CliDemoOptions) {
       projectedVoidedExcluded: replay.statementReceiptPayload.totalVoidedExcludedFormatted,
       projectedHeldDisputed: replay.statementReceiptPayload.totalHeldDisputedFormatted,
       planHash: replay.splitPlan.planHash,
+    },
+    multiVendorPayoutSummary: {
+      senderBatchId: multiVendorBatch.sender_batch_header.sender_batch_id,
+      itemCount: multiVendorBatch.items.length,
+      items: multiVendorBatch.items,
     },
   };
 }

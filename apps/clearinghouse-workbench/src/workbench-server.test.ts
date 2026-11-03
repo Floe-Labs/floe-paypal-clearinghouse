@@ -57,11 +57,7 @@ describe("Floe Clearinghouse Interactive Workbench Server & CLI Demo", () => {
     expect(htmlReplay.body).toContain("ag-grid-community");
     expect(htmlReplay.body).toContain("Deterministic Replay Mode");
 
-    const prodHandler = createClearinghouseRequestHandler({
-      paypalClientId: "cid",
-      paypalClientSecret: "csec",
-      paypalEnvironment: "live",
-    });
+    const prodHandler = createClearinghouseRequestHandler({ paypalClientId: "cid", paypalClientSecret: "csec", paypalEnvironment: "live" });
     const htmlProd = await invokeHandler(prodHandler, "GET", "/");
     expect(htmlProd.body).toContain("PayPal Production API Connected");
 
@@ -70,20 +66,22 @@ describe("Floe Clearinghouse Interactive Workbench Server & CLI Demo", () => {
     const replayJson = JSON.parse(replayRes.body) as {
       agGridRows: unknown[];
       bryntumTimeline: unknown[];
+      unitEconomicsAndEval: { verifiedClearedUnitCostFormatted: string; leakageBasisPoints: number };
       statementReceiptPayload: { totalBilledFormatted: string; totalCapturedPayableFormatted: string };
     };
     expect(replayJson.agGridRows).toHaveLength(3);
     expect(replayJson.bryntumTimeline).toHaveLength(4);
     expect(replayJson.statementReceiptPayload.totalBilledFormatted).toBe("$4530.24");
+    expect(replayJson.unitEconomicsAndEval.verifiedClearedUnitCostFormatted).toContain("$0.99/outcome");
+
+    const vapiBatchRes = await invokeHandler(replayHandler, "GET", "/api/replay?preset=vapi&mode=MULTI_VENDOR_PAYOUT");
+    expect(JSON.parse(vapiBatchRes.body).payoutBatch.items).toHaveLength(3);
   });
 
   it("validates JSON-RPC 2.0 requests, rejects unsafe numeric amounts, derives period spend from server state, normalizes custom statement lines, and fails closed without approvalSecret", async () => {
     const handlerNoSecret = createClearinghouseRequestHandler({ approvalSecret: "" });
 
-    const invalidRpc = await invokeHandler(handlerNoSecret, "POST", "/api/mcp", {
-      jsonrpc: "1.0",
-      id: "bad-1",
-    });
+    const invalidRpc = await invokeHandler(handlerNoSecret, "POST", "/api/mcp", { jsonrpc: "1.0", id: "bad-1" });
     expect(invalidRpc.statusCode).toBe(400);
 
     const unsafeNumRes = await invokeHandler(handlerNoSecret, "POST", "/api/mcp", {

@@ -11,16 +11,22 @@ import {
   type ClearedStatementLine,
   type ClearedWorkStatementInput,
 } from "../../../packages/paypal-settlement-provider/src/index.js";
+import { LOCKED_17_VENDORS, LOCKED_TASK_TYPES } from "./demo-presets.js";
 import { renderClearinghouseWorkbenchHtml } from "./ui-html.js";
-import { DEMO_CLEARED_WORK_STATEMENT, runClearinghouseDemoReplay } from "./workbench-engine.js";
+import {
+  DEMO_CLEARED_WORK_STATEMENT,
+  getAllDemoPresetStatements,
+  resolveDemoPresetStatement,
+  runClearinghouseDemoReplay,
+} from "./workbench-engine.js";
 
 function buildServerPolicy(approvalSecret?: string): AgentAuthorityBudgetPolicy {
   const trimmedSecret = (approvalSecret ?? "").trim();
   return {
     orgId: "org_northwind_enterprise",
     agentId: "agt_fin_support_01",
-    allowedVendors: ["fin", "zendesk", "coderabbit", "github_copilot"],
-    allowedTaskTypes: ["support_resolution", "code_review"],
+    allowedVendors: LOCKED_17_VENDORS,
+    allowedTaskTypes: LOCKED_TASK_TYPES,
     maxTaskMicro: 5_000_000n,
     maxPeriodMicro: 10_000_000_000n,
     restrictedOpsRequireApproval: ["issue_refund_above_floor"],
@@ -155,7 +161,18 @@ export function createClearinghouseRequestHandler(options?: WorkbenchServerOptio
       }
 
       if (method === "GET" && url.pathname === "/api/replay") {
-        sendJson(res, 200, runClearinghouseDemoReplay());
+        const stmt = resolveDemoPresetStatement(url.searchParams.get("preset") ?? undefined);
+        const isBatch = url.searchParams.get("mode") === "MULTI_VENDOR_PAYOUT";
+        sendJson(
+          res,
+          200,
+          runClearinghouseDemoReplay(
+            stmt,
+            isBatch
+              ? { settlementMode: "MULTI_VENDOR_PAYOUT", multiVendorStatements: getAllDemoPresetStatements() }
+              : undefined,
+          ),
+        );
         return;
       }
 
@@ -192,6 +209,7 @@ export function createClearinghouseRequestHandler(options?: WorkbenchServerOptio
 
       if (method === "POST" && url.pathname === "/api/paypal/authorize") {
         const body = await readJsonBody(req);
+        const stmt = resolveDemoPresetStatement(typeof body.preset === "string" ? body.preset : undefined);
         const suppliedOrderId = typeof body.orderId === "string" ? body.orderId.trim() : "";
         const suppliedAuthId = typeof body.authorizationId === "string" ? body.authorizationId.trim() : "";
 
@@ -201,19 +219,15 @@ export function createClearinghouseRequestHandler(options?: WorkbenchServerOptio
             if (!suppliedOrderId || !suppliedAuthId) {
               throw new Error("Both orderId and authorizationId are required to capture a live authorized order.");
             }
-            const { capture } = await paypalClient.captureAuthorizedWork(
-              DEMO_CLEARED_WORK_STATEMENT,
-              suppliedOrderId,
-              suppliedAuthId,
-            );
-            const replay = runClearinghouseDemoReplay(DEMO_CLEARED_WORK_STATEMENT, {
+            const { capture } = await paypalClient.captureAuthorizedWork(stmt, suppliedOrderId, suppliedAuthId);
+            const replay = runClearinghouseDemoReplay(stmt, {
               orderId: suppliedOrderId,
               authorizationId: suppliedAuthId,
             });
             sendJson(res, 200, {
               mode: liveMode,
               settlementStatus: "LIVE_CAPTURE_COMPLETED",
-              payeeMerchantId: DEMO_CLEARED_WORK_STATEMENT.payeeMerchantId,
+              payeeMerchantId: stmt.payeeMerchantId,
               order: { id: suppliedOrderId, status: "COMPLETED" },
               authorizationId: suppliedAuthId,
               capture,
@@ -222,23 +236,23 @@ export function createClearinghouseRequestHandler(options?: WorkbenchServerOptio
             return;
           }
 
-          const { order } = await paypalClient.createOrderAuthorization(DEMO_CLEARED_WORK_STATEMENT);
-          const projectedReplay = runClearinghouseDemoReplay(DEMO_CLEARED_WORK_STATEMENT);
+          const { order } = await paypalClient.createOrderAuthorization(stmt);
+          const projectedReplay = runClearinghouseDemoReplay(stmt);
           sendJson(res, 200, {
             mode: liveMode,
             settlementStatus: "ORDER_CREATED_AWAITING_BUYER_APPROVAL",
-            payeeMerchantId: DEMO_CLEARED_WORK_STATEMENT.payeeMerchantId,
+            payeeMerchantId: stmt.payeeMerchantId,
             order,
             projectedReplay,
           });
           return;
         }
 
-        const replay = runClearinghouseDemoReplay();
+        const replay = runClearinghouseDemoReplay(stmt);
         sendJson(res, 200, {
           mode: "DETERMINISTIC_REPLAY",
           settlementStatus: "SIMULATED_REPLAY",
-          payeeMerchantId: DEMO_CLEARED_WORK_STATEMENT.payeeMerchantId,
+          payeeMerchantId: stmt.payeeMerchantId,
           order: { id: replay.statementReceiptPayload.payPalOrderId, status: "CREATED" },
           replay,
         });
