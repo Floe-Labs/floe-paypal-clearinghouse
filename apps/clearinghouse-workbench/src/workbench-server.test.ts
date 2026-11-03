@@ -57,11 +57,7 @@ describe("Floe Clearinghouse Interactive Workbench Server & CLI Demo", () => {
     expect(htmlReplay.body).toContain("ag-grid-community");
     expect(htmlReplay.body).toContain("Deterministic Replay Mode");
 
-    const prodHandler = createClearinghouseRequestHandler({
-      paypalClientId: "cid",
-      paypalClientSecret: "csec",
-      paypalEnvironment: "live",
-    });
+    const prodHandler = createClearinghouseRequestHandler({ paypalClientId: "cid", paypalClientSecret: "csec", paypalEnvironment: "live" });
     const htmlProd = await invokeHandler(prodHandler, "GET", "/");
     expect(htmlProd.body).toContain("PayPal Production API Connected");
 
@@ -70,20 +66,32 @@ describe("Floe Clearinghouse Interactive Workbench Server & CLI Demo", () => {
     const replayJson = JSON.parse(replayRes.body) as {
       agGridRows: unknown[];
       bryntumTimeline: unknown[];
+      unitEconomicsAndEval: { verifiedClearedUnitCostFormatted: string; leakageBasisPoints: number };
       statementReceiptPayload: { totalBilledFormatted: string; totalCapturedPayableFormatted: string };
     };
     expect(replayJson.agGridRows).toHaveLength(3);
     expect(replayJson.bryntumTimeline).toHaveLength(4);
     expect(replayJson.statementReceiptPayload.totalBilledFormatted).toBe("$4530.24");
+    expect(replayJson.unitEconomicsAndEval.verifiedClearedUnitCostFormatted).toContain("$0.99/outcome");
+
+    const vapiBatchRes = await invokeHandler(replayHandler, "GET", "/api/replay?preset=vapi&mode=MULTI_VENDOR_PAYOUT");
+    const vapiBatchJson = JSON.parse(vapiBatchRes.body);
+    expect(vapiBatchJson.payoutBatch.items.map((i: { receiver: string }) => i.receiver)).toEqual([
+      "4MWDGZ4MWSE5J",
+      "7VAP92KLMN34P",
+      "9ENG84QRST56W",
+    ]);
+    expect(vapiBatchJson.unitEconomicsAndEval.kpiSubtitles.captured).toContain("Vapi");
+
+    const badPresetRes = await invokeHandler(replayHandler, "GET", "/api/replay?preset=invalid");
+    expect(badPresetRes.statusCode).toBe(400);
+    expect(badPresetRes.body).toContain("Unknown vendor preset");
   });
 
   it("validates JSON-RPC 2.0 requests, rejects unsafe numeric amounts, derives period spend from server state, normalizes custom statement lines, and fails closed without approvalSecret", async () => {
     const handlerNoSecret = createClearinghouseRequestHandler({ approvalSecret: "" });
 
-    const invalidRpc = await invokeHandler(handlerNoSecret, "POST", "/api/mcp", {
-      jsonrpc: "1.0",
-      id: "bad-1",
-    });
+    const invalidRpc = await invokeHandler(handlerNoSecret, "POST", "/api/mcp", { jsonrpc: "1.0", id: "bad-1" });
     expect(invalidRpc.statusCode).toBe(400);
 
     const unsafeNumRes = await invokeHandler(handlerNoSecret, "POST", "/api/mcp", {
@@ -106,15 +114,8 @@ describe("Floe Clearinghouse Interactive Workbench Server & CLI Demo", () => {
     expect(unsafeNumRes.statusCode).toBe(400);
     expect(unsafeNumRes.body).toContain("must be an integer string or safe integer");
 
-    // Restricted op fails closed when approvalSecret is not configured, even if caller sends a proof
     const forgedProof = createHumanApprovalProof(
-      {
-        requestId: "req_r1",
-        orgId: "org_northwind_enterprise",
-        agentId: "agt_fin_support_01",
-        operation: "issue_refund_above_floor",
-        requestedMicro: 1_000_000n,
-      },
+      { requestId: "req_r1", orgId: "org_northwind_enterprise", agentId: "agt_fin_support_01", operation: "issue_refund_above_floor", requestedMicro: 1_000_000n },
       "controller_alice",
       "any_secret",
     );
@@ -124,31 +125,15 @@ describe("Floe Clearinghouse Interactive Workbench Server & CLI Demo", () => {
       method: "tools/call",
       params: {
         name: "request_work_authorization",
-        arguments: {
-          requestId: "req_r1",
-          orgId: "org_northwind_enterprise",
-          agentId: "agt_fin_support_01",
-          vendor: "fin",
-          taskType: "support_resolution",
-          operation: "issue_refund_above_floor",
-          requestedMicro: "1000000",
-          humanApprovalProof: forgedProof,
-        },
+        arguments: { requestId: "req_r1", orgId: "org_northwind_enterprise", agentId: "agt_fin_support_01", vendor: "fin", taskType: "support_resolution", operation: "issue_refund_above_floor", requestedMicro: "1000000", humanApprovalProof: forgedProof },
       },
     });
     expect(JSON.parse(restrictedDenied.body).result.outcome).toBe("approval_required");
 
-    // Server derives cumulativePeriodMicro from store and normalizes custom statement lines
     const secret = "deploy_approval_secret_99";
     const handlerWithSecret = createClearinghouseRequestHandler({ approvalSecret: secret });
     const validProof = createHumanApprovalProof(
-      {
-        requestId: "req_r2",
-        orgId: "org_northwind_enterprise",
-        agentId: "agt_fin_support_01",
-        operation: "issue_refund_above_floor",
-        requestedMicro: 1_000_000n,
-      },
+      { requestId: "req_r2", orgId: "org_northwind_enterprise", agentId: "agt_fin_support_01", operation: "issue_refund_above_floor", requestedMicro: 1_000_000n },
       "controller_alice",
       secret,
     );
@@ -158,17 +143,7 @@ describe("Floe Clearinghouse Interactive Workbench Server & CLI Demo", () => {
       method: "tools/call",
       params: {
         name: "request_work_authorization",
-        arguments: {
-          requestId: "req_r2",
-          orgId: "org_northwind_enterprise",
-          agentId: "agt_fin_support_01",
-          vendor: "fin",
-          taskType: "support_resolution",
-          operation: "issue_refund_above_floor",
-          requestedMicro: "1000000",
-          cumulativePeriodMicro: "0",
-          humanApprovalProof: validProof,
-        },
+        arguments: { requestId: "req_r2", orgId: "org_northwind_enterprise", agentId: "agt_fin_support_01", vendor: "fin", taskType: "support_resolution", operation: "issue_refund_above_floor", requestedMicro: "1000000", cumulativePeriodMicro: "0", humanApprovalProof: validProof },
       },
     });
     expect(JSON.parse(restrictedAllowed.body).result.outcome).toBe("allow");
@@ -184,26 +159,21 @@ describe("Floe Clearinghouse Interactive Workbench Server & CLI Demo", () => {
           authorizationId: "AUTH-CUSTOM-1",
           statement: {
             ...DEMO_CLEARED_WORK_STATEMENT,
-            lines: [
-              {
-                lineKey: "L_CUSTOM",
-                description: "Custom JSON line",
-                billedMicro: "2000000",
-                clearedPayableMicro: "2000000",
-                excludedCreditMicro: "0",
-                heldInDisputeMicro: "0",
-                verified: true,
-                contractValid: true,
-                buyerAccepted: true,
-                evidenceRefs: ["ev:1"],
-              },
-            ],
+            lines: [{ lineKey: "L_CUSTOM", description: "Custom JSON line", billedMicro: "2000000", clearedPayableMicro: "2000000", excludedCreditMicro: "0", heldInDisputeMicro: "0", verified: true, contractValid: true, buyerAccepted: true, evidenceRefs: ["ev:1"] }],
           },
         },
       },
     });
     expect(customSettleRes.statusCode).toBe(200);
     expect(JSON.parse(customSettleRes.body).result.splitCapturePlan.capturePayableMicro).toBe("2000000");
+
+    const presetSettleRes = await invokeHandler(handlerWithSecret, "POST", "/api/mcp", {
+      jsonrpc: "2.0",
+      id: "rpc-settle-vapi",
+      method: "tools/call",
+      params: { name: "settle_cleared_work", arguments: { preset: "vapi", orderId: "ORD-V1", authorizationId: "AUTH-V1" } },
+    });
+    expect(JSON.parse(presetSettleRes.body).result.splitCapturePlan.statementId).toBe("CWS-2026-10-VAPI-0018");
   });
 
   it("separates order creation from live capture and labels sandbox vs production accurately", async () => {
@@ -272,12 +242,16 @@ describe("Floe Clearinghouse Interactive Workbench Server & CLI Demo", () => {
 
     // 3. CLI demo distinguishes sandbox vs production and order creation vs live capture
     const cliProdOrder = await runClearinghouseCliDemo({
+      preset: "vapi",
       paypalClientId: "test_client",
       paypalClientSecret: "test_secret",
       paypalEnvironment: "live",
       fetchFn: mockFetch,
     });
     expect(cliProdOrder.mode).toBe("LIVE_PAYPAL_PRODUCTION");
+    expect(cliProdOrder.payeeMerchantId).toBe("7VAP92KLMN34P");
+    expect(cliProdOrder.mcpAuth.authorizedHoldMicro).toBe(250_000n);
+    expect(cliProdOrder.mcpEvidence.taskId).toBe("tsk_demo_vapi_001");
     expect(cliProdOrder.settlementStatus).toBe("ORDER_CREATED_AWAITING_BUYER_APPROVAL");
     expect(cliProdOrder.projectedSettlement.replayOrderId).toBe("PAYPAL-ORDER-8841920X");
 

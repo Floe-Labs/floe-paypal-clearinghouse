@@ -6,6 +6,12 @@ import {
   formatMicroToDecimal,
   type ClearedWorkStatementInput,
 } from "../../../packages/paypal-settlement-provider/src/index.js";
+import {
+  AUTONOMOUS_ENG_STATEMENT,
+  computeEvalWaterfallAndEconomics,
+  VAPI_VOICE_STATEMENT,
+  type DemoPresetKey,
+} from "./demo-presets.js";
 
 export interface AGGridStatementRow {
   readonly lineKey: string;
@@ -242,5 +248,22 @@ export function runClearinghouseDemoReplay(
     agGridRows,
     bryntumTimeline,
     statementReceiptPayload,
+    unitEconomicsAndEval: computeEvalWaterfallAndEconomics(statement),
   };
 }
+
+export function resolveDemoPresetStatement(preset?: unknown): ClearedWorkStatementInput {
+  if (preset === undefined || preset === "" || preset === "fin") return DEMO_CLEARED_WORK_STATEMENT;
+  if (preset === "vapi") return VAPI_VOICE_STATEMENT;
+  if (preset === "autonomous_eng") return AUTONOMOUS_ENG_STATEMENT;
+  throw new Error(`Unknown vendor preset "${String(preset)}". Expected "fin", "vapi", or "autonomous_eng".`);
+}
+
+export function getAllDemoPresetStatements(): readonly [
+  ClearedWorkStatementInput,
+  ClearedWorkStatementInput,
+  ClearedWorkStatementInput,
+] {
+  return [DEMO_CLEARED_WORK_STATEMENT, VAPI_VOICE_STATEMENT, AUTONOMOUS_ENG_STATEMENT];
+}
+export type { DemoPresetKey };
